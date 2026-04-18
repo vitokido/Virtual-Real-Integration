@@ -1,0 +1,6 @@
+# Dependencias Python
+pip install requests numpy
+
+# (OPCIONAL pero recomendado) Instalar Ollama para IA local real
+# Ve a https://ollama.com y descarga para tu SO
+# Luego en terminal: ollama pull llama3.2
