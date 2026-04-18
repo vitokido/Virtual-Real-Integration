@@ -1,0 +1,239 @@
+import json
+import hashlib
+import time
+import random
+from dataclasses import dataclass, field
+from typing import Dict, List, Set, Optional
+from collections import defaultdict
+import threading
+
+# ------------------------------------------------------------
+# 1. CONSENTIMIENTO QUEERWARE + FIRMA LOCAL
+# ------------------------------------------------------------
+@dataclass
+class Consentimiento:
+    avatar_id: str
+    permite_compartir: bool
+    permite_recibir_simulaciones: bool
+    hash_consentimiento: str = ""
+    
+    def __post_init__(self):
+        self.hash_consentimiento = hashlib.sha256(
+            f"{self.avatar_id}{self.permite_compartir}{self.permite_recibir_simulaciones}".encode()
+        ).hexdigest()[:8]
+
+# ------------------------------------------------------------
+# 2. AVATAR COMO AGENTE DE REALIDAD
+# ------------------------------------------------------------
+class Avatar:
+    def __init__(self, nombre: str, permite_compartir=True, permite_recibir=True):
+        self.id = hashlib.md5(nombre.encode()).hexdigest()[:6]
+        self.nombre = nombre
+        self.consentimiento = Consentimiento(self.id, permite_compartir, permite_recibir)
+        self.mundos_generados: List[Dict] = []
+        self.conocimiento_local: Dict = {}
+        self.historial_interacciones = []
+    
+    def generar_mundo(self, semilla: Dict) -> Dict:
+        """Un avatar puede construir nuevas realidades desde su conocimiento local"""
+        nuevo_mundo = {
+            "creado_por": self.nombre,
+            "timestamp": time.time(),
+            "semilla": semilla,
+            "contenido": f"Realidad generada por {self.nombre} desde fuera de internet",
+            "id_mundo": hashlib.md5(str(random.random()).encode()).hexdigest()[:6]
+        }
+        self.mundos_generados.append(nuevo_mundo)
+        return nuevo_mundo
+    
+    def resolver_conflicto(self, realidad_a: Dict, realidad_b: Dict) -> Dict:
+        """Agente de resolución: fusiona dos realidades por consenso"""
+        resolucion = {
+            "resuelto_por": self.nombre,
+            "fusion": {**realidad_a, **realidad_b},
+            "consenso_hash": hashlib.md5(json.dumps([realidad_a, realidad_b]).encode()).hexdigest()[:6]
+        }
+        self.historial_interacciones.append(("resolucion", resolucion))
+        return resolucion
+    
+    def puede_recibir(self) -> bool:
+        return self.consentimiento.permite_recibir_simulaciones
+    
+    def puede_compartir(self) -> bool:
+        return self.consentimiento.permite_compartir
+
+# ------------------------------------------------------------
+# 3. INTERNET DISTRIBUIDA SIN DATOS COMPRADOS
+# ------------------------------------------------------------
+class InternetDesdeFuera:
+    """Una red de avatares que comparten simulaciones sin necesidad de datos contratados"""
+    
+    def __init__(self):
+        self.avatares: Dict[str, Avatar] = {}
+        self.realidad_compartida: Dict = {"version": 0, "estado": "semilla_inicial"}
+        self.simulaciones_cache: List[Dict] = []
+        self._lock = threading.Lock()
+    
+    def registrar_avatar(self, avatar: Avatar):
+        self.avatares[avatar.id] = avatar
+        print(f"🌱 {avatar.nombre} se une a la red. Consentimiento: {avatar.consentimiento.hash_consentimiento}")
+    
+    def proponer_nueva_realidad(self, avatar_id: str, propuesta: Dict) -> bool:
+        """Cualquier avatar puede proponer cambios a la realidad compartida"""
+        if avatar_id not in self.avatares:
+            return False
+        avatar = self.avatares[avatar_id]
+        if not avatar.puede_compartir():
+            print(f"🚫 {avatar.nombre} no puede compartir (sin consentimiento)")
+            return False
+        
+        with self._lock:
+            # Ingeniería inversa del futuro: la propuesta se acepta si mejora la realidad
+            puntaje = self._evaluar_propuesta(propuesta)
+            if puntaje > 0.6:
+                self.realidad_compartida = {
+                    "version": self.realidad_compartida["version"] + 1,
+                    "estado": propuesta,
+                    "propuesta_por": avatar.nombre,
+                    "timestamp": time.time(),
+                    "puntaje": puntaje
+                }
+                print(f"✨ {avatar.nombre} cambió la realidad compartida (puntaje {puntaje:.2f})")
+                return True
+            else:
+                print(f"💭 {avatar.nombre} propuso cambio con puntaje {puntaje:.2f} - no aceptado")
+                return False
+    
+    def _evaluar_propuesta(self, propuesta) -> float:
+        """Simula consenso distribuido: qué tan 'real' es la propuesta"""
+        # Mientras más creativa y coherente, mejor puntaje
+        complejidad = len(str(propuesta)) % 100 / 100
+        novedad = hash(str(propuesta)) % 100 / 100
+        return (complejidad + novedad) / 2
+    
+    def simular_conexion_sin_datos(self, avatar_id: str) -> Optional[Dict]:
+        """Un avatar 'se conecta a internet' pero sin datos comprados, solo simulaciones"""
+        if avatar_id not in self.avatares:
+            return None
+        avatar = self.avatares[avatar_id]
+        if not avatar.puede_recibir():
+            print(f"🔒 {avatar.nombre} no consintió recibir simulaciones")
+            return None
+        
+        # Generar una nueva simulación basada en la realidad compartida
+        simulacion = {
+            "origen": "internet_desde_fuera",
+            "basado_en": self.realidad_compartida["version"],
+            "contenido_simulado": f"Simulación para {avatar.nombre} desde fuera de internet",
+            "timestamp": time.time(),
+            "hash_seguro": hashlib.md5(str(random.random()).encode()).hexdigest()[:8]
+        }
+        
+        self.simulaciones_cache.append(simulacion)
+        avatar.conocimiento_local[f"sim_{time.time()}"] = simulacion
+        
+        print(f"📡 {avatar.nombre} recibió conexión SIN datos (simulación pura)")
+        return simulacion
+    
+    def explorar_nuevos_mundos(self, avatar_id: str, semilla: Dict) -> Dict:
+        """Incentivar a explorar y construir"""
+        if avatar_id not in self.avatares:
+            return {}
+        avatar = self.avatares[avatar_id]
+        nuevo_mundo = avatar.generar_mundo(semilla)
+        
+        # El nuevo mundo se agrega a la realidad compartida si es interesante
+        if self._evaluar_propuesta(nuevo_mundo) > 0.7:
+            self.realidad_compartida["ultimo_mundo_generado"] = nuevo_mundo
+            print(f"🌍 {avatar.nombre} construyó un nuevo mundo que se integra a la realidad")
+        
+        return nuevo_mundo
+    
+    def mostrar_estado_red(self):
+        print("\n" + "="*60)
+        print("🌐 ESTADO DE INTERNET DESDE FUERA")
+        print(f"Realidad compartida versión: {self.realidad_compartida['version']}")
+        print(f"Avatares conectados: {len(self.avatares)}")
+        print(f"Simulaciones en cache: {len(self.simulaciones_cache)}")
+        for avatar in self.avatares.values():
+            consent = "📢 comparte" if avatar.puede_compartir() else "🔇 no comparte"
+            recibir = "📥 recibe" if avatar.puede_recibir() else "🚫 no recibe"
+            print(f"  - {avatar.nombre}: {consent}, {recibir}, mundos: {len(avatar.mundos_generados)}")
+        print("="*60)
+
+# ------------------------------------------------------------
+# 4. SIMULACIÓN DE VIAJE EN EL TIEMPO (AVATARES DEL FUTURO)
+# ------------------------------------------------------------
+class ViajeEnElTiempo:
+    """Los avatares pueden 'adelantarse' y traer soluciones del futuro"""
+    
+    @staticmethod
+    def traer_del_futuro(red: InternetDesdeFuera, avatar_id: str) -> Dict:
+        """Ingeniería inversa del futuro: se genera una solución como si viniera de +1 iteración"""
+        futuro = {
+            "timestamp_futuro": time.time() + 86400,  # un día después
+            "solucion": f"Solución avanzada para problema actual",
+            "mejora": random.uniform(0.8, 1.5),
+            "traido_por": avatar_id
+        }
+        
+        # Aplicar mejora a la realidad compartida
+        with red._lock:
+            red.realidad_compartida["mejora_futuro"] = futuro
+            print(f"⏰ ¡Avatar {avatar_id} trajo una solución del futuro! Mejora: {futuro['mejora']:.2f}x")
+        
+        return futuro
+
+# ------------------------------------------------------------
+# 5. EJECUCIÓN: CONVERTIRNOS EN AGENTES DE REALIDAD
+# ------------------------------------------------------------
+if __name__ == "__main__":
+    print("🌀 INICIANDO INTERNET DESDE FUERA")
+    print("Donde los avatares son agentes de realidad y resolución\n")
+    
+    # Crear la red soberana
+    red = InternetDesdeFuera()
+    
+    # Avatares con diferentes niveles de consentimiento
+    avatar_1 = Avatar("Exploradora", permite_compartir=True, permite_recibir=True)
+    avatar_2 = Avatar("Constructora", permite_compartir=True, permite_recibir=True)
+    avatar_3 = Avatar("Resolutora", permite_compartir=True, permite_recibir=False)  # solo comparte, no recibe
+    avatar_4 = Avatar("ViajeraTemporal", permite_compartir=True, permite_recibir=True)
+    
+    for av in [avatar_1, avatar_2, avatar_3, avatar_4]:
+        red.registrar_avatar(av)
+    
+    # 1. Avatares exploran y construyen nuevos mundos
+    print("\n--- EXPLORACIÓN Y CONSTRUCCIÓN ---")
+    mundo1 = red.explorar_nuevos_mundos(avatar_1.id, {"tema": "realidades líquidas"})
+    mundo2 = red.explorar_nuevos_mundos(avatar_2.id, {"tema": "consenso distribuido"})
+    
+    # 2. Un avatar propone cambiar la realidad compartida
+    print("\n--- PROPUESTAS DE REALIDAD ---")
+    propuesta = {"nueva_ley": "los datos son libres", "confianza": 0.95}
+    red.proponer_nueva_realidad(avatar_1.id, propuesta)
+    
+    # 3. Conexión sin datos: simular que internet funciona desde fuera
+    print("\n--- CONEXIÓN SIN DATOS COMPRADOS ---")
+    for i in range(3):
+        red.simular_conexion_sin_datos(avatar_2.id)
+        time.sleep(0.5)
+    
+    # 4. Resolución de conflictos entre realidades
+    print("\n--- AGENTES DE RESOLUCIÓN ---")
+    realidad_a = {"version": "A", "dato": 42}
+    realidad_b = {"version": "B", "dato": 99}
+    resolucion = avatar_3.resolver_conflicto(realidad_a, realidad_b)
+    print(f"Resolución: {resolucion['consenso_hash']}")
+    
+    # 5. Viaje en el tiempo: avatares del futuro ayudan al presente
+    print("\n--- INGENIERÍA INVERSA DEL FUTURO ---")
+    ViajeEnElTiempo.traer_del_futuro(red, avatar_4.id)
+    
+    # 6. Mostrar estado final de la red soberana
+    red.mostrar_estado_red()
+    
+    print("\n✨ INTERNET AHORA FUNCIONA DESDE FUERA DE INTERNET")
+    print("Los avatares son parte activa de la realidad que construyen.")
+    print("El consentimiento es la base. La exploración, el motor.")
+    print("Y tú, que ejecutaste esto, ya eres un agente de resolución.")
