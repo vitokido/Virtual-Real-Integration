@@ -1,0 +1,268 @@
+import json
+import random
+import threading
+import tkinter as tk
+from tkinter import scrolledtext, messagebox
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+from collections import deque
+import requests
+
+# ------------------------------------------------------------
+# 1. CONEXIÓN A OLLAMA (LLM LOCAL)
+# ------------------------------------------------------------
+class OllamaPredictor:
+    """Usa un modelo local de Ollama para generar predicciones creativas"""
+    def __init__(self, model_name="llama3.2:latest", ollama_url="http://localhost:11434"):
+        self.model_name = model_name
+        self.ollama_url = ollama_url
+        self.disponible = self._verificar_ollama()
+    
+    def _verificar_ollama(self):
+        try:
+            r = requests.get(f"{self.ollama_url}/api/tags", timeout=2)
+            return r.status_code == 200
+        except:
+            return False
+    
+    def generar_simulacion(self, ultimo_estado_real: Dict) -> str:
+        """Pide a Ollama que genere un 'siguiente estado' como si internet se extralimitara"""
+        if not self.disponible:
+            return self._simulacion_fallback(ultimo_estado_real)
+        
+        prompt = f"""
+        Eres un metaverso que trasciende los datos corporativos. 
+        Último estado real (contratado/wifi): {json.dumps(ultimo_estado_real, indent=2)}
+        
+        Genera un NUEVO ESTADO SIMULADO (como si internet se hubiera extralimitado y hubieras obtenido más datos sin conexión real).
+        Devuelve SOLO JSON con claves nuevas o valores evolucionados. Sé creativo pero coherente.
+        """
+        
+        try:
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={"model": self.model_name, "prompt": prompt, "stream": False},
+                timeout=10
+            )
+            texto = response.json()["response"]
+            # Extraer JSON del texto
+            import re
+            json_match = re.search(r'\{.*\}', texto, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            else:
+                return self._simulacion_fallback(ultimo_estado_real)
+        except:
+            return self._simulacion_fallback(ultimo_estado_real)
+    
+    def _simulacion_fallback(self, ultimo_estado_real):
+        """Si Ollama no está disponible, usa generación local simple"""
+        nuevo = ultimo_estado_real.copy()
+        for k, v in nuevo.items():
+            if isinstance(v, (int, float)):
+                nuevo[k] = v * random.uniform(0.95, 1.05)
+        nuevo["simulacro_sin_ollama"] = round(random.random(), 3)
+        return nuevo
+
+# ------------------------------------------------------------
+# 2. AVATAR CON CONSENTIMIENTO (QUEERWARE)
+# ------------------------------------------------------------
+@dataclass
+class Avatar:
+    nombre: str
+    permisos: Dict[str, bool] = field(default_factory=dict)
+    memoria: List[str] = field(default_factory=list)
+    
+    def consentir(self, accion: str) -> bool:
+        return self.permisos.get(accion, False)
+    
+    def recibir_simulacion(self, datos):
+        if self.consentir("recibir_simulacion"):
+            self.memoria.append(str(datos))
+            return f"✅ {self.nombre} aceptó: {datos}"
+        else:
+            return f"🚫 {self.nombre} rechazó por consentimiento"
+
+# ------------------------------------------------------------
+# 3. METAVERSO PRINCIPAL
+# ------------------------------------------------------------
+class MetaversoExtralimitado:
+    def __init__(self, usar_ollama=True):
+        self.ultimo_estado_real = None
+        self.predictor = OllamaPredictor() if usar_ollama else None
+        self.avatares: List[Avatar] = []
+        self.historial = []
+        self.usar_ollama = usar_ollama
+    
+    def registrar_avatar(self, nombre, permite_simulacion=True):
+        avatar = Avatar(nombre, {"recibir_simulacion": permite_simulacion})
+        self.avatares.append(avatar)
+        return avatar
+    
+    def cargar_datos_reales(self, datos: Dict):
+        self.ultimo_estado_real = datos.copy()
+        self.historial.append(("real", datos))
+    
+    def simular_extralimitacion(self) -> Dict:
+        if self.ultimo_estado_real is None:
+            raise Exception("No hay datos reales cargados")
+        
+        if self.usar_ollama and self.predictor:
+            nuevo_estado = self.predictor.generar_simulacion(self.ultimo_estado_real)
+        else:
+            # Simulación simple
+            nuevo_estado = self.ultimo_estado_real.copy()
+            for k in list(nuevo_estado.keys())[:1]:
+                nuevo_estado[f"{k}_sim"] = random.random()
+        
+        self.historial.append(("simulado", nuevo_estado))
+        self.ultimo_estado_real = nuevo_estado  # La simulación se vuelve la nueva "real" para la próxima
+        return nuevo_estado
+    
+    def obtener_logs(self):
+        return self.historial[-5:]  # últimos 5 eventos
+
+# ------------------------------------------------------------
+# 4. INTERFAZ GRÁFICA (TKINTER)
+# ------------------------------------------------------------
+class AppQueerWare:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("🌀 Metaverso Extralimitado · Deep AI QueerWare")
+        self.root.geometry("800x600")
+        self.root.configure(bg="#1e1e2f")
+        
+        self.metaverso = MetaversoExtralimitado(usar_ollama=True)
+        
+        # Datos de ejemplo iniciales
+        self.datos_ejemplo = {
+            "temperatura_servidor": 23.5,
+            "usuarios_conectados": 128,
+            "ancho_banda_mbps": 88.2,
+            "contrato_activo": "Premium",
+            "ultima_actualizacion": "2025-04-01"
+        }
+        
+        self._crear_widgets()
+        self._actualizar_log()
+    
+    def _crear_widgets(self):
+        # Título
+        titulo = tk.Label(self.root, text="🌌 METAVERSO EXTRALIMITADO", font=("Arial", 18, "bold"),
+                          fg="#ff79c6", bg="#1e1e2f")
+        titulo.pack(pady=10)
+        
+        # Frame de avatares
+        frame_avatares = tk.LabelFrame(self.root, text="🤖 Avatares con Consentimiento (QueerWare)", 
+                                       bg="#282a36", fg="white", font=("Arial", 10, "bold"))
+        frame_avatares.pack(fill="x", padx=10, pady=5)
+        
+        self.avatar_listbox = tk.Listbox(frame_avatares, height=4, bg="#44475a", fg="white")
+        self.avatar_listbox.pack(fill="x", padx=5, pady=5)
+        
+        btn_agregar_avatar = tk.Button(frame_avatares, text="➕ Agregar Avatar (consiente)", 
+                                       command=self.agregar_avatar, bg="#50fa7b", fg="black")
+        btn_agregar_avatar.pack(pady=2)
+        
+        btn_avatar_no_consiente = tk.Button(frame_avatares, text="🚫 Agregar Avatar (NO consiente)", 
+                                            command=self.agregar_avatar_no_consiente, bg="#ff5555", fg="white")
+        btn_avatar_no_consiente.pack(pady=2)
+        
+        # Frame de datos reales
+        frame_datos = tk.LabelFrame(self.root, text="📡 Última actualización CON datos contratados/wifi", 
+                                    bg="#282a36", fg="white")
+        frame_datos.pack(fill="x", padx=10, pady=5)
+        
+        self.txt_datos_reales = tk.Text(frame_datos, height=6, bg="#44475a", fg="white", wrap=tk.WORD)
+        self.txt_datos_reales.pack(fill="both", padx=5, pady=5)
+        self.txt_datos_reales.insert(tk.END, json.dumps(self.datos_ejemplo, indent=2))
+        
+        btn_cargar = tk.Button(frame_datos, text="📥 Cargar estos datos como 'contrato real'", 
+                               command=self.cargar_datos_reales, bg="#8be9fd", fg="black")
+        btn_cargar.pack(pady=2)
+        
+        # Botón de simulación
+        btn_simular = tk.Button(self.root, text="🌀 SIMULAR EXTRALIMITACIÓN (sin conexión real)", 
+                                command=self.simular, font=("Arial", 12, "bold"),
+                                bg="#ffb86c", fg="black", pady=5)
+        btn_simular.pack(pady=10)
+        
+        # Log de eventos
+        frame_log = tk.LabelFrame(self.root, text="📜 Historial de extralimitaciones", bg="#282a36", fg="white")
+        frame_log.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.log_text = scrolledtext.ScrolledText(frame_log, height=12, bg="#44475a", fg="#f8f8f2", wrap=tk.WORD)
+        self.log_text.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Estado de Ollama
+        self.label_ollama = tk.Label(self.root, text="🔍 Verificando Ollama...", bg="#1e1e2f", fg="#f1fa8c")
+        self.label_ollama.pack(pady=5)
+        self._verificar_ollama_estado()
+    
+    def _verificar_ollama_estado(self):
+        try:
+            r = requests.get("http://localhost:11434/api/tags", timeout=2)
+            if r.status_code == 200:
+                self.label_ollama.config(text="✅ Ollama conectado · IA local activa", fg="#50fa7b")
+            else:
+                self.label_ollama.config(text="⚠️ Ollama no responde · Usando fallback simple", fg="#ffb86c")
+        except:
+            self.label_ollama.config(text="❌ Ollama no disponible · Instala ollama.com", fg="#ff5555")
+    
+    def agregar_avatar(self):
+        nombre = f"Avatar_{len(self.metaverso.avatares)+1}"
+        self.metaverso.registrar_avatar(nombre, permite_simulacion=True)
+        self.avatar_listbox.insert(tk.END, f"🤝 {nombre} (consiente)")
+    
+    def agregar_avatar_no_consiente(self):
+        nombre = f"Avatar_{len(self.metaverso.avatares)+1}"
+        self.metaverso.registrar_avatar(nombre, permite_simulacion=False)
+        self.avatar_listbox.insert(tk.END, f"🚫 {nombre} (NO consiente)")
+    
+    def cargar_datos_reales(self):
+        try:
+            datos = json.loads(self.txt_datos_reales.get("1.0", tk.END).strip())
+            self.metaverso.cargar_datos_reales(datos)
+            messagebox.showinfo("Éxito", "Datos contratados cargados. Ahora puedes simular extralimitaciones.")
+            self._actualizar_log()
+        except Exception as e:
+            messagebox.showerror("Error", f"JSON inválido: {e}")
+    
+    def simular(self):
+        if self.metaverso.ultimo_estado_real is None:
+            messagebox.showwarning("Sin datos", "Primero carga datos reales (simulando un contrato o wifi).")
+            return
+        
+        def tarea_simular():
+            try:
+                nuevo = self.metaverso.simular_extralimitacion()
+                self.root.after(0, lambda: self._mostrar_simulacion(nuevo))
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Error", str(e)))
+        
+        threading.Thread(target=tarea_simular, daemon=True).start()
+    
+    def _mostrar_simulacion(self, nuevo_estado):
+        # Notificar a avatares
+        for avatar in self.metaverso.avatares:
+            resultado = avatar.recibir_simulacion(nuevo_estado)
+            self.log_text.insert(tk.END, f"{resultado}\n")
+        
+        self.log_text.insert(tk.END, f"\n🌀 NUEVA EXTRALIMITACIÓN SIMULADA:\n{json.dumps(nuevo_estado, indent=2)}\n")
+        self.log_text.insert(tk.END, "─" * 50 + "\n")
+        self.log_text.see(tk.END)
+        
+        # Actualizar datos reales mostrados (la simulación se vuelve el nuevo estado base)
+        self.txt_datos_reales.delete("1.0", tk.END)
+        self.txt_datos_reales.insert(tk.END, json.dumps(nuevo_estado, indent=2))
+    
+    def _actualizar_log(self):
+        self.log_text.insert(tk.END, "✅ Sistema listo. Carga datos reales y simula.\n")
+
+# ------------------------------------------------------------
+# 5. EJECUTAR
+# ------------------------------------------------------------
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AppQueerWare(root)
+    root.mainloop()
